@@ -8,14 +8,31 @@
 import SwiftUI
 
 struct ContentView: View {
+    @EnvironmentObject var appState: AppState
+    
     var body: some View {
-        VStack {
-            Image(systemName: "globe")
-                .imageScale(.large)
-                .foregroundStyle(.tint)
-            Text("Hello, world!")
+        TabView {
+            DashboardView()
+                .tabItem {
+                    Label("Dashboard", systemImage: "chart.bar.fill")
+                }
+            
+            TransactionsView()
+                .tabItem {
+                    Label("Transactions", systemImage: "creditcard.fill")
+                }
+            
+            BudgetView()
+                .tabItem {
+                    Label("Budget", systemImage: "chart.pie.fill")
+                }
+            
+            AnalysisView()
+                .tabItem {
+                    Label("Analysis", systemImage: "chart.line.uptrend.xyaxis")
+                }
         }
-        .padding()
+        .tint(.accentColor)
     }
 }
 
