@@ -1,4 +1,5 @@
 import SwiftUI
+import Foundation
 
 @MainActor
 final class AnalysisViewModel: ObservableObject {
@@ -33,8 +34,12 @@ final class AnalysisViewModel: ObservableObject {
     }
     
     private func fetchPreviousPeriodTransactions() async throws -> [Transaction] {
-        // Implementation for fetching previous period transactions
-        return []
+        // Calculate the start date for the previous period
+        let calendar = Calendar.current
+        let currentStartDate = calendar.date(byAdding: selectedTimePeriod.dateComponent, to: .now) ?? .now
+        let previousStartDate = calendar.date(byAdding: selectedTimePeriod.dateComponent, to: currentStartDate) ?? currentStartDate
+        
+        return try await repository.fetchTransactions(from: previousStartDate, to: currentStartDate)
     }
     
     private func calculateMetrics(
@@ -51,9 +56,16 @@ final class AnalysisViewModel: ObservableObject {
             .reduce(Decimal(0)) { $0 + $1.amount }
         
         // Calculate monthly change percentage
-        let changePercentage = previousSpent > 0 
-            ? Double((currentSpent - previousSpent) / previousSpent * 100)
-            : 0
+        let changePercentage: Double
+        if previousSpent > 0 {
+            let change = NSDecimalNumber(decimal: currentSpent)
+                .subtracting(NSDecimalNumber(decimal: previousSpent))
+                .dividing(by: NSDecimalNumber(decimal: previousSpent))
+                .multiplying(by: NSDecimalNumber(value: 100))
+            changePercentage = change.doubleValue
+        } else {
+            changePercentage = currentSpent > 0 ? 100 : 0
+        }
         
         // Calculate category breakdown
         let categoryTotals = Dictionary(grouping: currentTransactions) { $0.category }
@@ -64,11 +76,21 @@ final class AnalysisViewModel: ObservableObject {
             }
         
         let breakdown = categoryTotals.map { category, amount in
-            CategorySpending(
+            // Safe calculation of percentage
+            let percentage: Double
+            if currentSpent > 0 {
+                percentage = NSDecimalNumber(decimal: amount)
+                    .dividing(by: NSDecimalNumber(decimal: currentSpent))
+                    .doubleValue
+            } else {
+                percentage = 0
+            }
+            
+            return CategorySpending(
                 name: category.rawValue,
                 amount: amount,
-                percentage: Double(amount / currentSpent),
-                color: category.color // Add this property to Category enum
+                percentage: percentage,
+                color: category.color
             )
         }.sorted { $0.amount > $1.amount }
         
@@ -105,4 +127,17 @@ enum TimePeriod: String, CaseIterable, Identifiable {
     
     var id: String { rawValue }
     var displayName: String { rawValue }
+    
+    var dateComponent: DateComponents {
+        switch self {
+        case .week:
+            return DateComponents(day: -7)
+        case .month:
+            return DateComponents(month: -1)
+        case .quarter:
+            return DateComponents(month: -3)
+        case .year:
+            return DateComponents(year: -1)
+        }
+    }
 } 

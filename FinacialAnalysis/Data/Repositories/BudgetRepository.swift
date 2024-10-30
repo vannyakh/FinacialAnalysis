@@ -2,13 +2,14 @@ import Foundation
 import SwiftData
 
 class BudgetRepository {
-    private let modelContainer: ModelContainer
     private let modelContext: ModelContext
     
     init() {
         do {
-            modelContainer = try ModelContainer(for: Budget.self)
-            modelContext = ModelContainer.shared.mainContext
+            let schema = Schema([Budget.self])
+            let modelConfiguration = ModelConfiguration(schema: schema)
+            let container = try ModelContainer(for: schema, configurations: [modelConfiguration])
+            self.modelContext = ModelContext(container)
         } catch {
             fatalError("Failed to initialize ModelContainer: \(error)")
         }
@@ -89,7 +90,9 @@ class BudgetRepository {
     func checkBudgetAlerts() async throws -> [BudgetAlert] {
         let utilizations = try await getBudgetUtilization()
         return utilizations.compactMap { utilization in
-            let percentage = Double(utilization.spentAmount / utilization.budgetAmount)
+            let percentage = NSDecimalNumber(decimal: utilization.spentAmount)
+                .dividing(by: NSDecimalNumber(decimal: utilization.budgetAmount))
+                .doubleValue
             
             if percentage >= 0.9 {
                 return BudgetAlert(
@@ -116,7 +119,7 @@ struct BudgetUtilization {
     }
     
     var utilizationPercentage: Double {
-        Double(spentAmount / budgetAmount)
+        Double(truncating: NSDecimalNumber(decimal: spentAmount).dividing(by: NSDecimalNumber(decimal: budgetAmount)))
     }
 }
 

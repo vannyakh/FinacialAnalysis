@@ -2,13 +2,14 @@ import Foundation
 import SwiftData
 
 class TransactionRepository {
-    private let modelContainer: ModelContainer
     private let modelContext: ModelContext
     
     init() {
         do {
-            modelContainer = try ModelContainer(for: Transaction.self)
-            modelContext = ModelContainer.shared.mainContext
+            let schema = Schema([Transaction.self])
+            let modelConfiguration = ModelConfiguration(schema: schema)
+            let container = try ModelContainer(for: schema, configurations: [modelConfiguration])
+            self.modelContext = ModelContext(container)
         } catch {
             fatalError("Failed to initialize ModelContainer: \(error)")
         }
@@ -20,23 +21,34 @@ class TransactionRepository {
         for period: TimePeriod = .month,
         category: Category? = nil
     ) async throws -> [Transaction] {
-        var predicates: [Predicate<Transaction>] = []
-        
-        // Date predicate based on period
         let startDate = Calendar.current.date(byAdding: period.dateComponent, to: .now) ?? .now
-        predicates.append(#Predicate<Transaction> { transaction in
-            transaction.date >= startDate
-        })
         
-        // Category predicate if specified
-        if let category {
-            predicates.append(#Predicate<Transaction> { transaction in
-                transaction.category == category
-            })
+        var predicate: Predicate<Transaction>
+        if let category = category {
+            predicate = #Predicate<Transaction> { transaction in
+                transaction.date >= startDate && transaction.category == category
+            }
+        } else {
+            predicate = #Predicate<Transaction> { transaction in
+                transaction.date >= startDate
+            }
         }
         
         let descriptor = FetchDescriptor<Transaction>(
-            predicate: Predicate<Transaction>.init(format: predicates),
+            predicate: predicate,
+            sortBy: [SortDescriptor(\.date, order: .reverse)]
+        )
+        
+        return try modelContext.fetch(descriptor)
+    }
+    
+    func fetchTransactions(from: Date, to: Date) async throws -> [Transaction] {
+        let predicate = #Predicate<Transaction> { transaction in
+            transaction.date >= from && transaction.date <= to
+        }
+        
+        let descriptor = FetchDescriptor<Transaction>(
+            predicate: predicate,
             sortBy: [SortDescriptor(\.date, order: .reverse)]
         )
         
@@ -44,10 +56,10 @@ class TransactionRepository {
     }
     
     func fetchRecentTransactions(limit: Int = 10) async throws -> [Transaction] {
-        let descriptor = FetchDescriptor<Transaction>(
-            sortBy: [SortDescriptor(\.date, order: .reverse)],
-            fetchLimit: limit
+        var descriptor = FetchDescriptor<Transaction>(
+            sortBy: [SortDescriptor(\.date, order: .reverse)]
         )
+        descriptor.fetchLimit = limit
         
         return try modelContext.fetch(descriptor)
     }
@@ -99,12 +111,21 @@ class TransactionRepository {
             categoryTotals[transaction.category, default: 0] += transaction.amount
         }
         
-        // Convert to CategorySummary objects
+        // Convert to CategorySummary objects with safe percentage calculation
         return categoryTotals.map { category, amount in
-            CategorySummary(
+            let percentage: Double
+            if totalExpenses > 0 {
+                percentage = NSDecimalNumber(decimal: amount)
+                    .dividing(by: NSDecimalNumber(decimal: totalExpenses))
+                    .doubleValue
+            } else {
+                percentage = 0
+            }
+            
+            return CategorySummary(
                 category: category,
                 amount: amount,
-                percentage: Double(amount / totalExpenses)
+                percentage: percentage
             )
         }.sorted { $0.amount > $1.amount }
     }
@@ -149,28 +170,11 @@ struct DailyTransactions: Identifiable {
     let transactions: [Transaction]
     
     var totalAmount: Decimal {
-        transactions.reduce(Decimal(0)) { total, transaction in
+        transactions.reduce(0) { total, transaction in
             switch transaction.type {
             case .income: return total + transaction.amount
             case .expense: return total - transaction.amount
             }
-        }
-    }
-}
-
-// MARK: - Helper Extensions
-
-extension TimePeriod {
-    var dateComponent: DateComponents {
-        switch self {
-        case .week:
-            return DateComponents(day: -7)
-        case .month:
-            return DateComponents(month: -1)
-        case .quarter:
-            return DateComponents(month: -3)
-        case .year:
-            return DateComponents(year: -1)
         }
     }
 }
